@@ -128,9 +128,24 @@ if errorlevel 1 (
 )
 echo [OK] 已备份到 "!BAK!\system_env.reg"
 
+rem 恢复脚本要能自己提权：HKLM 下的环境变量只有管理员能写，
+rem 不提权的 reg import 会失败，但旧版照样打印「回滚完成」——
+rem 用户以为好了，其实环境一点没变。这是最坏的一种 bug。
 > "%~dp0restore.bat" echo @echo off
+>> "%~dp0restore.bat" echo chcp 65001 ^>nul 2^>^&1
+>> "%~dp0restore.bat" echo cd /d "%%~dp0"
+>> "%~dp0restore.bat" echo fltmc ^>nul 2^>^&1
+>> "%~dp0restore.bat" echo if errorlevel 1 ^(
+>> "%~dp0restore.bat" echo     powershell -NoProfile -Command "try { Start-Process -FilePath '%%~f0' -Verb RunAs -ErrorAction Stop } catch { exit 2 }"
+>> "%~dp0restore.bat" echo     exit /b
+>> "%~dp0restore.bat" echo ^)
 >> "%~dp0restore.bat" echo echo 正在回滚到 !STAMP! 的备份...
->> "%~dp0restore.bat" echo reg import "!BAK!\system_env.reg"
+>> "%~dp0restore.bat" echo reg import "backup_!STAMP!\system_env.reg"
+>> "%~dp0restore.bat" echo if errorlevel 1 ^(
+>> "%~dp0restore.bat" echo     echo [ERROR] 回滚失败。请以管理员身份手动执行：
+>> "%~dp0restore.bat" echo     echo     reg import "backup_!STAMP!\system_env.reg"
+>> "%~dp0restore.bat" echo     pause ^& exit /b 1
+>> "%~dp0restore.bat" echo ^)
 >> "%~dp0restore.bat" echo echo 回滚完成，请重新打开终端。
 >> "%~dp0restore.bat" echo pause
 echo [OK] 已生成 restore.bat
