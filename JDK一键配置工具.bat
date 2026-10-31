@@ -100,12 +100,56 @@ if not "%~1"=="" (
     goto APPLY
 )
 
-rem ---------- 4. 交互选择 ----------
+rem ---------- 4. 智能推荐 ----------
+rem 对不懂技术的人来说，"检测到以下 JDK" + 一串英文路径等于没法选。
+rem 这里替他们判断：哪个最新、哪个最稳，并用大白话说明为什么。
+set "REC_IDX=0"
+set "REC_MAJOR=0"
+set "REC_REASON="
+
+for /l %%i in (1,1,!IDX!) do (
+    set "PATH_I=!JDK_%%i!"
+    for /f "delims=" %%v in ('call "%~dp0pick-jdk-helper.bat" "!PATH_I!" 2^>nul') do set "MAJOR_I=%%v"
+    if not defined MAJOR_I set "MAJOR_I=0"
+    if !MAJOR_I! GTR !REC_MAJOR! (
+        set "REC_IDX=%%i"
+        set "REC_MAJOR=!MAJOR_I!"
+    )
+)
+
+rem 推荐理由：按主流程度给建议，而不是简单的"越高越好"
+if "!REC_MAJOR!" GEQ "21" (
+    set "REC_REASON=版本较新，长期支持；如果你不确定选哪个，用这个。"
+) else if "!REC_MAJOR!"=="17" (
+    set "REC_REASON=目前企业和教学最通用的版本，兼容性最好。"
+) else if "!REC_MAJOR!"=="11" (
+    set "REC_REASON=较老的稳定版本，部分旧项目仍在用。建议升级到 17。"
+) else if "!REC_MAJOR!"=="8" (
+    set "REC_REASON=很老的版本，只有维护旧项目才需要。新项目请装 17 或 21。"
+) else if "!REC_MAJOR!"=="0" (
+    set "REC_REASON=无法识别版本号，但路径是有效的。"
+)
+
+rem ---------- 5. 交互选择 ----------
 if "!IDX!"=="0" goto ASK_MANUAL
 
 echo 检测到以下 JDK：
-for /l %%i in (1,1,!IDX!) do echo   [%%i] !JDK_%%i!
-set /p "CH=请选择序号，或输入 M 手动指定："
+echo.
+for /l %%i in (1,1,!IDX!) do (
+    for /f "delims=" %%v in ('call "%~dp0pick-jdk-helper.bat" "!JDK_%%i!" 2^>nul') do set "V=%%v"
+    if not defined V set "V=?"
+    if "%%i"=="!REC_IDX!" (
+        echo   ^> [%%i] JDK !V!   !JDK_%%i!
+        echo          ^(推荐^) !REC_REASON!
+    ) else (
+        echo     [%%i] JDK !V!   !JDK_%%i!
+    )
+)
+echo.
+echo 直接回车 = 使用推荐的 [ !REC_IDX! ]，输入其它序号可改选，M 手动指定路径。
+set "CH="
+set /p "CH=你的选择："
+if not defined CH set "CH=!REC_IDX!"
 if /i "!CH!"=="M" goto ASK_MANUAL
 echo !CH!|findstr /x "[1-9][0-9]*" >nul || ( echo [ERROR] 输入无效 & pause & exit /b 1 )
 if !CH! lss 1 ( echo [ERROR] 输入无效 & pause & exit /b 1 )
@@ -128,8 +172,13 @@ echo ==========================================
 echo     即将修改系统环境变量
 echo ==========================================
 echo.
-echo   JDK 目录 : !JDK_PATH!
-echo   JAVA_HOME: !JAVA_HOME!
+echo   要设置的 JDK 目录：
+echo     !JDK_PATH!
+echo.
+echo   将会执行：
+echo     1. 把 JAVA_HOME 设为上面这个目录
+echo     2. 把它的 bin 目录加入系统 PATH
+echo     3. 移除 PATH 里其它 JDK 的 bin（避免新旧版本串台）
 echo.
 echo   修改前会自动备份，可双击 restore.bat 回滚。
 echo.
@@ -231,7 +280,11 @@ rem ============================================================
 :TRY_ADD
 set "CAND=%~1"
 if not exist "!CAND!\bin\javac.exe" exit /b 0
+rem 规范化时去掉末尾反斜杠。%%~fi 会原样保留尾部反斜杠，
+rem 于是 "C:\...\jdk-17\" 和 "C:\...\jdk-17" 被当成两个不同目录，
+rem 列表里出现重复项，用户还以为装了两个 JDK。
 for %%i in ("!CAND!") do set "CAND=%%~fi"
+if "!CAND:~-1!"=="\" set "CAND=!CAND:~0,-1!"
 for /l %%i in (1,1,!IDX!) do if /i "!JDK_%%i!"=="!CAND!" exit /b 0
 set /a IDX+=1
 set "JDK_!IDX!=!CAND!"
