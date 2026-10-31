@@ -21,9 +21,17 @@ rem 用 fltmc 而不是 net session：后者依赖 Server 服务，
 rem 精简系统上管理员也会被判成非管理员，导致反复弹 UAC。
 fltmc >nul 2>&1
 if errorlevel 1 (
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs -ErrorAction Stop } catch { exit 2 }"
-    if errorlevel 2 echo [ERROR] 提权被取消，未做任何修改。
-    exit /b
+    powershell -NoProfile -Command "try { $p = Start-Process -FilePath '%~f0' -Verb RunAs -PassThru -Wait -ErrorAction Stop; exit $p.ExitCode } catch { exit 2 }"
+    rem 注意：这里必须用 !errorlevel!，不能用 %errorlevel%。
+    rem 括号块在解析时就把 %变量% 全部展开成字面值了，
+    rem 所以 %errorlevel% 拿到的是"进入 if 之前"的 1，而不是 PowerShell 刚返回的结果 ——
+    rem 结果就是不管子进程成没成功，父进程都报 1。
+    set "RC=!errorlevel!"
+    if "!RC!"=="2" (
+        echo [ERROR] 提权被取消，未做任何修改。
+        exit /b 2
+    )
+    exit /b !RC!
 )
 
 echo ==========================================
@@ -50,15 +58,32 @@ for %%K in (
 
 rem ---------- 2. 目录扫描 ----------
 rem 每个目录单独判断，路径含空格也不会被切碎。
+rem 除常规安装位置，还要覆盖开发者实际常见的几类：
+rem   .jdks        —— IntelliJ 自动下载的 JDK
+rem   scoop/appsflyer/asdf —— 包管理器装的，路径较深
+rem   JetBrains     —— 自带 JBR（可作 JDK 用，但不是首选）
+rem   .sdkman       —— 部分人在 Windows 上也用它
+rem 路径写多了不会更慢：每个只做一次 dir，不存在就跳过。
 for %%D in (
   "%ProgramFiles%\Java"
   "%ProgramFiles%\Eclipse Adoptium"
   "%ProgramFiles%\Amazon Corretto"
   "%ProgramFiles%\Microsoft"
+  "%ProgramFiles%\Zulu"
+  "%ProgramFiles%\BellSoft"
+  "%ProgramFiles%\Semeru"
+  "%ProgramFiles%\RedHat"
   "%USERPROFILE%\.jdks"
+  "%USERPROFILE%\.sdkman\candidates\java"
+  "%USERPROFILE%\scoop\apps\openjdk"
+  "%USERPROFILE%\scoop\apps\temurin"
+  "%USERPROFILE%\scoop\apps\zulu"
+  "%LOCALAPPDATA%\Programs\Eclipse Adoptium"
+  "%LOCALAPPDATA%\JetBrains"
+  "%LOCALAPPDATA%\asdf"
 ) do (
     if exist "%%~D" (
-        for /f "delims=" %%j in ('dir /b /ad "%%~D\jdk*" "%%~D\jre*" 2^>nul') do (
+        for /f "delims=" %%j in ('dir /b /ad "%%~D\jdk*" "%%~D\jre*" "%%~D"*jdk* "%%~D"*jbr* 2^>nul') do (
             call :TRY_ADD "%%~D\%%j"
         )
     )
