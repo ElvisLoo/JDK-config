@@ -81,3 +81,35 @@ JDK一键配置工具.bat "C:\Program Files\Java\jdk-17"
 ## 许可证
 
 MIT
+
+## JDK 体检（配好了但用不了时先跑这个）
+
+配置完 JAVA_HOME 不等于环境就能用。`JDK体检.bat` 会逐项检查：
+
+| 检查项 | 能发现什么 |
+|---|---|
+| java 能不能跑 | PATH 里根本没有 java |
+| javac 能不能跑 | **装的是 JRE 不是 JDK** —— 只能运行不能编译，报错却是「找不到 javac」 |
+| 版本是否一致 | java 17 配 javac 8 这类串台，编译能过、运行炸 UnsupportedClassVersionError |
+| 源码编码 | 中文 Windows 默认 GBK，UTF-8 中文注释直接编译失败，而报错行号看着完全正常 |
+| JAVA_HOME | 未设置，或指向的是 JRE 目录 |
+| PATH 里有几个 java | 多个 JDK 并存时，实际生效的往往不是你刚配的那个 |
+
+退出码 0 表示无问题，1 表示发现问题，方便脚本化调用。
+
+### 为什么专门查编码
+
+这条最容易误判成「JDK 坏了」。实际表现是：
+
+```
+错误: 编码 GBK 的不可映射字符 (0xB2)
+        // 验证字符集
+                  ^
+```
+
+行号、列号都对，代码本身也没写错，只是 javac 按 GBK 解码了一个 UTF-8 文件。
+两种解法：编译时加 `-encoding UTF-8`，运行时加 `-Dfile.encoding=UTF-8`。
+
+这个坑我在 JDK 17 + 中文 Windows 上实测过：`file.encoding`、
+`native.encoding`、`sun.jnu.encoding` 全是 GBK。JDK 18 起 JEP 400
+把默认值改成 UTF-8，所以升级到 18+ 就没有这个问题了。
